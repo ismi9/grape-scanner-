@@ -1,0 +1,10 @@
+{
+  "name": "VineGuard — Аналіз винограду",
+  "short_name": "VineGuard",
+  "description": "Сканування листків винограду з професійною AI-діагностикою",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0d1a",
+  "theme_color": "#1a1a2e",
+  "icons": [{ "src": "/icon.png", "sizes": "192x192", "type": "image/png" }]
+}

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#1a1a2e">
+  <title>🍇 VineGuard — Аналіз винограду</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icon.png">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d0d1a; color: #e0e0e0; min-height: 100dvh; }
+    .container { max-width: 480px; margin: 0 auto; padding: 12px; }
+    
+    header { display: flex; align-items: center; gap: 10px; padding: 12px 0; }
+    header h1 { font-size: 20px; font-weight: 700; background: linear-gradient(135deg,#7c3aed,#a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    header .badge { background: #7c3aed22; color: #a855f7; font-size: 10px; padding: 2px 8px; border-radius: 10px; border: 1px solid #7c3aed44; }
+
+    .camera-section { position: relative; border-radius: 16px; overflow: hidden; background: #1a1a2e; margin: 8px 0; aspect-ratio: 3/4; max-height: 65vh; }
+    #video { width: 100%; height: 100%; object-fit: cover; display: none; }
+    #canvas { display: none; }
+    .camera-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+    .camera-overlay .icon { font-size: 48px; opacity: 0.4; }
+    .camera-overlay p { font-size: 14px; color: #888; }
+
+    .controls { display: flex; gap: 10px; padding: 8px 0; flex-wrap: wrap; }
+    .btn { flex: 1; min-width: 100px; padding: 14px; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+    .btn:active { transform: scale(0.96); }
+    .btn-primary { background: linear-gradient(135deg,#7c3aed,#a855f7); color: #fff; }
+    .btn-primary:disabled { opacity: 0.4; }
+    .btn-secondary { background: #1e1e3a; color: #a855f7; border: 1px solid #7c3aed44; }
+    .btn-success { background: linear-gradient(135deg,#059669,#10b981); color: #fff; }
+    .btn-danger { background: linear-gradient(135deg,#dc2626,#ef4444); color: #fff; }
+
+    .preview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+    .preview-item { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 1; background: #1a1a2e; }
+    .preview-item img { width: 100%; height: 100%; object-fit: cover; }
+    .preview-item .remove { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%; background: #00000088; color: #fff; border: none; font-size: 14px; cursor: pointer; }
+
+    .result-card { background: #1a1a2e; border-radius: 16px; padding: 16px; margin: 8px 0; border: 1px solid #7c3aed22; display: none; }
+    .result-card h2 { font-size: 18px; margin-bottom: 12px; color: #a855f7; }
+    .result-card .content { font-size: 14px; line-height: 1.7; white-space: pre-wrap; }
+    .result-card .content strong { color: #a855f7; }
+    
+    .spinner { display: none; width: 32px; height: 32px; border: 3px solid #1e1e3a; border-top-color: #a855f7; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 16px auto; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state { text-align: center; padding: 32px 16px; color: #666; }
+    .empty-state .icon { font-size: 64px; margin-bottom: 12px; }
+
+    .flash { animation: flash 0.3s ease; }
+    @keyframes flash { 50% { opacity: 0.3; } }
+    
+    .photo-histogram { display: flex; gap: 4px; overflow-x: auto; padding: 8px 0; }
+    .photo-histogram img { width: 56px; height: 56px; border-radius: 8px; object-fit: cover; cursor: pointer; border: 2px solid transparent; flex-shrink: 0; }
+    .photo-histogram img.active { border-color: #a855f7; }
+
+    @media (max-width: 400px) {
+      .btn { font-size: 13px; padding: 12px; min-width: 80px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🍇 VineGuard</h1>
+      <span class="badge">BETA</span>
+    </header>
+
+    <!-- Camera -->
+    <div class="camera-section" id="cameraSection">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div class="camera-overlay" id="cameraOverlay">
+        <div class="icon">📷</div>
+        <p>Натисніть "Увімкнути камеру"</p>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <button class="btn btn-primary" id="btnCamera">📷 Увімкнути камеру</button>
+      <button class="btn btn-secondary" id="btnCapture" disabled>📸 Зробити знімок</button>
+      <button class="btn btn-success" id="btnAnalyze" disabled>🔬 Аналізувати</button>
+      <button class="btn btn-danger" id="btnClear" style="display:none">🗑 Очистити</button>
+    </div>
+
+    <div class="spinner" id="spinner"></div>
+
+    <!-- Recent photos -->
+    <div class="photo-histogram" id="histogram"></div>
+
+    <!-- Result -->
+    <div class="result-card" id="resultCard">
+      <h2>🔬 Результат аналізу</h2>
+      <div class="content" id="resultContent"></div>
+    </div>
+
+    <div class="empty-state" id="emptyState">
+      <div class="icon">🍃</div>
+      <p>Наведіть камеру на листок винограду<br>для професійного аналізу</p>
+    </div>
+  </div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const cameraOverlay = document.getElementById('cameraOverlay');
+    const btnCamera = document.getElementById('btnCamera');
+    const btnCapture = document.getElementById('btnCapture');
+    const btnAnalyze = document.getElementById('btnAnalyze');
+    const btnClear = document.getElementById('btnClear');
+    const spinner = document.getElementById('spinner');
+    const resultCard = document.getElementById('resultCard');
+    const resultContent = document.getElementById('resultContent');
+    const emptyState = document.getElementById('emptyState');
+    const histogram = document.getElementById('histogram');
+
+    let stream = null;
+    let snapshots = [];  // { dataUrl, previewUrl }
+
+    // Camera toggle
+    btnCamera.addEventListener('click', async () => {
+      if (stream) {
+        stopCamera();
+        return;
+      }
+      try {
+        // Prefer rear camera for leaf scanning
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { 
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        });
+        video.srcObject = stream;
+        video.style.display = 'block';
+        cameraOverlay.style.display = 'none';
+        btnCamera.textContent = '⏹ Вимкнути камеру';
+        btnCapture.disabled = false;
+      } catch (err) {
+        alert('Помилка доступу до камери: ' + err.message);
+      }
+    });
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      video.style.display = 'none';
+      cameraOverlay.style.display = 'flex';
+      btnCamera.textContent = '📷 Увімкнути камеру';
+      btnCapture.disabled = true;
+    }
+
+    // Capture
+    btnCapture.addEventListener('click', () => {
+      if (!stream) return;
+      
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+      
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      const previewUrl = canvas.toDataURL('image/jpeg', 0.3);
+      
+      snapshots.push({ dataUrl, previewUrl, id: Date.now() });
+      
+      // Flash effect
+      cameraSection.classList.add('flash');
+      setTimeout(() => cameraSection.classList.remove('flash'), 300);
+      
+      updateUI();
+    });
+
+    function removeSnapshot(id) {
+      snapshots = snapshots.filter(s => s.id !== id);
+      updateUI();
+    }
+
+    function updateUI() {
+      // Histogram
+      histogram.innerHTML = snapshots.map(s => 
+        `<img src="${s.previewUrl}" onclick="removeSnapshot(${s.id})" title="Натисніть щоб видалити">`
+      ).join('');
+      
+      btnAnalyze.disabled = snapshots.length === 0;
+      btnClear.style.display = snapshots.length > 0 ? 'inline-block' : 'none';
+      emptyState.style.display = snapshots.length === 0 && resultCard.style.display === 'none' ? 'block' : 'none';
+    }
+
+    btnClear.addEventListener('click', () => {
+      snapshots = [];
+      resultCard.style.display = 'none';
+      emptyState.style.display = 'block';
+      histogram.innerHTML = '';
+      updateUI();
+    });
+
+    // Analyze
+    btnAnalyze.addEventListener('click', async () => {
+      if (snapshots.length === 0) return;
+
+      btnAnalyze.disabled = true;
+      spinner.style.display = 'block';
+      resultCard.style.display = 'none';
+      emptyState.style.display = 'none';
+
+      // Take the latest snapshot or send multiple
+      const latest = snapshots[snapshots.length - 1];
+      
+      // Convert base64 to blob
+      const blob = dataURLToBlob(latest.dataUrl);
+      const formData = new FormData();
+      formData.append('image', blob, 'leaf.jpg');
+
+      try {
+        const resp = await fetch('/api/analyze', {
+          method: 'POST',
+          body: formData
+        });
+        const data = await resp.json();
+        
+        if (data.success) {
+          resultContent.textContent = data.analysis;
+          resultCard.style.display = 'block';
+          // Scroll to result
+          resultCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          resultContent.textContent = '❌ Помилка: ' + data.error;
+          resultCard.style.display = 'block';
+        }
+      } catch (err) {
+        resultContent.textContent = '❌ Помилка з\'єднання: ' + err.message;
+        resultCard.style.display = 'block';
+      } finally {
+        spinner.style.display = 'none';
+        btnAnalyze.disabled = false;
+      }
+    });
+
+    function dataURLToBlob(dataUrl) {
+      const parts = dataUrl.split(',');
+      const mime = parts[0].match(/:(.*?);/)[1];
+      const bytes = atob(parts[1]);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      return new Blob([arr], { type: mime });
+    }
+
+    // Handle lost camera context
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden && stream) {
+        // Lost camera on iOS Safari — will need restart
+      }
+    });
+  </script>
+</body>
+</html>
