@@ -18,13 +18,27 @@ export default function Home() {
     setError(null)
     setResult(null)
     setCaptured(null)
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setError('Ваш браузер не підтримує камеру. Спробуйте Chrome або Safari.')
+      return
+    }
+
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: cameraFacing, width: { ideal: 1080 }, height: { ideal: 1920 } },
-      })
+
+      // Try with facing mode first, fallback to basic video
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: cameraFacing } }
+        })
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      }
+
       streamRef.current = stream
       if (videoRef.current) {
         videoRef.current.srcObject = stream
@@ -33,8 +47,16 @@ export default function Home() {
           setStreaming(true)
         }
       }
-    } catch (e) {
-      setError('Не вдалося відкрити камеру. Дозвольте доступ до камери в браузері.')
+    } catch (e: any) {
+      if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+        setError('Доступ до камери заборонено. Дозвольте доступ у налаштуваннях браузера.')
+      } else if (e.name === 'NotFoundError') {
+        setError('Камеру не знайдено на цьому пристрої.')
+      } else if (e.name === 'NotReadableError') {
+        setError('Камера зайнята іншим додатком. Закрийте інші вкладки/додатки.')
+      } else {
+        setError(`Помилка камери: ${e.message || e.name}. Спробуйте оновити сторінку.`)
+      }
     }
   }, [cameraFacing])
 
@@ -97,7 +119,6 @@ export default function Home() {
     startCamera()
   }, [startCamera])
 
-  // Auto-scan every 3 seconds when streaming
   useEffect(() => {
     if (streaming) {
       scanIntervalRef.current = setInterval(() => {
@@ -126,6 +147,9 @@ export default function Home() {
           </button>
           <div className="text-xs text-gray-500 text-center max-w-xs">
             Наведіть камеру на листок винограду — сканування почнеться автоматично кожні 3 секунди
+          </div>
+          <div className="text-xs text-gray-600 text-center max-w-xs mt-2">
+            ⚠️ Потрібен дозвіл на використання камери. Натисніть "Дозволити" у спливаючому вікні браузера.
           </div>
         </div>
       )}
