@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useCallback, useEffect } from 'react'
+import { useRef, useState, useCallback } from 'react'
 
 export default function Home() {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -10,58 +10,37 @@ export default function Home() {
   const [analyzing, setAnalyzing] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [cameraFacing, setCameraFacing] = useState<'environment' | 'user'>('environment')
   const streamRef = useRef<MediaStream | null>(null)
-  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const startCamera = useCallback(async () => {
     setError(null)
     setResult(null)
     setCaptured(null)
-
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setError('Ваш браузер не підтримує камеру. Спробуйте Chrome або Safari.')
-      return
-    }
+    setStreaming(false)
 
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(t => t.stop())
+        streamRef.current = null
       }
 
-      // Try with facing mode first, fallback to basic video
-      let stream: MediaStream
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: cameraFacing } }
-        })
-      } catch {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }
+      })
 
       streamRef.current = stream
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream
-        videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play()
-          setStreaming(true)
-        }
+        await videoRef.current.play()
+        setStreaming(true)
       }
-    } catch (e: any) {
-      if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
-        setError('Доступ до камери заборонено. Дозвольте доступ у налаштуваннях браузера.')
-      } else if (e.name === 'NotFoundError') {
-        setError('Камеру не знайдено на цьому пристрої.')
-      } else if (e.name === 'NotReadableError') {
-        setError('Камера зайнята іншим додатком. Закрийте інші вкладки/додатки.')
-      } else {
-        setError(`Помилка камери: ${e.message || e.name}. Спробуйте оновити сторінку.`)
-      }
+    } catch (err: any) {
+      setError('Помилка камери: ' + (err?.message || err?.name || String(err)))
     }
-  }, [cameraFacing])
+  }, [])
 
   const stopCamera = useCallback(() => {
-    if (scanIntervalRef.current) clearInterval(scanIntervalRef.current)
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop())
       streamRef.current = null
@@ -69,19 +48,18 @@ export default function Home() {
     setStreaming(false)
   }, [])
 
-  const captureFrame = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return null
+  const handleCapture = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current) return
     const video = videoRef.current
     const canvas = canvasRef.current
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
+    canvas.width = video.videoWidth || 640
+    canvas.height = video.videoHeight || 480
     const ctx = canvas.getContext('2d')
-    if (!ctx) return null
+    if (!ctx) return
     ctx.drawImage(video, 0, 0)
-    return canvas.toDataURL('image/jpeg', 0.85)
-  }, [])
-
-  const analyzeImage = useCallback(async (dataUrl: string) => {
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+    setCaptured(dataUrl)
+    stopCamera()
     setAnalyzing(true)
     setError(null)
     try {
@@ -98,19 +76,7 @@ export default function Home() {
     } finally {
       setAnalyzing(false)
     }
-  }, [])
-
-  const handleCapture = useCallback(() => {
-    const dataUrl = captureFrame()
-    if (!dataUrl) return
-    setCaptured(dataUrl)
-    stopCamera()
-    analyzeImage(dataUrl)
-  }, [captureFrame, stopCamera, analyzeImage])
-
-  const toggleCamera = useCallback(() => {
-    setCameraFacing(prev => prev === 'environment' ? 'user' : 'environment')
-  }, [])
+  }, [stopCamera])
 
   const retake = useCallback(() => {
     setCaptured(null)
@@ -119,91 +85,76 @@ export default function Home() {
     startCamera()
   }, [startCamera])
 
-  useEffect(() => {
-    if (streaming) {
-      scanIntervalRef.current = setInterval(() => {
-        const dataUrl = captureFrame()
-        if (dataUrl) {
-          setCaptured(dataUrl)
-          stopCamera()
-          analyzeImage(dataUrl)
-        }
-      }, 3000)
-    }
-    return () => { if (scanIntervalRef.current) clearInterval(scanIntervalRef.current) }
-  }, [streaming])
-
   return (
-    <main className="flex flex-col items-center p-2 max-w-lg mx-auto min-h-screen">
-      <header className="w-full text-center py-3">
-        <h1 className="text-2xl font-bold text-green-400">🍇 VineGuard</h1>
-        <p className="text-xs text-gray-400">AI-скаутер виноградників</p>
+    <main style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '12px', maxWidth: '500px', margin: '0 auto', minHeight: '100vh' }}>
+      <header style={{ textAlign: 'center', paddingBottom: '16px' }}>
+        <h1 style={{ color: '#4ade80', fontSize: '24px', fontWeight: 'bold', margin: 0 }}>🍇 VineGuard</h1>
+        <p style={{ color: '#9ca3af', fontSize: '12px', margin: '4px 0 0' }}>AI-скаутер виноградників</p>
       </header>
 
-      {!streaming && !captured && (
-        <div className="flex flex-col items-center gap-4 mt-12">
-          <button onClick={startCamera} className="bg-green-600 hover:bg-green-500 text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-lg shadow-green-900/50">
-            📷 Відкрити камеру
-          </button>
-          <div className="text-xs text-gray-500 text-center max-w-xs">
-            Наведіть камеру на листок винограду — сканування почнеться автоматично кожні 3 секунди
-          </div>
-          <div className="text-xs text-gray-600 text-center max-w-xs mt-2">
-            ⚠️ Потрібен дозвіл на використання камери. Натисніть "Дозволити" у спливаючому вікні браузера.
-          </div>
-        </div>
-      )}
-
-      <div className={`relative w-full ${streaming || captured ? 'mt-2' : 'hidden'}`} style={{ aspectRatio: '3/4', maxHeight: '70vh' }}>
-        {streaming && (
-          <>
-            <video ref={videoRef} autoPlay playsInline muted className={`w-full h-full object-cover rounded-xl ${captured ? 'hidden' : ''}`} />
-            <canvas ref={canvasRef} className="hidden" />
-            <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-xs text-green-300">
-              Авто-сканування активне
-            </div>
-            <button onClick={toggleCamera} className="absolute top-2 right-2 bg-black/60 px-3 py-1 rounded text-xs text-white">
-              🔄 {cameraFacing === 'environment' ? 'Фронт' : 'Тил'}
-            </button>
-            <button onClick={handleCapture} className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 text-black px-6 py-3 rounded-full font-semibold shadow-lg">
-              ⚡ Сканувати зараз
-            </button>
-          </>
-        )}
+      {/* Camera / Image area */}
+      <div style={{ width: '100%', position: 'relative', background: '#111', borderRadius: '12px', overflow: 'hidden', aspectRatio: '3/4', maxHeight: '65vh' }}>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: streaming ? 'block' : 'none' }}
+        />
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
 
         {captured && (
-          <>
-            <img src={captured} alt="Скан" className="w-full h-full object-cover rounded-xl" />
-            {analyzing && (
-              <div className="absolute inset-0 bg-black/70 flex items-center justify-center rounded-xl">
-                <div className="text-center">
-                  <div className="text-4xl mb-2 animate-pulse">🔍</div>
-                  <p className="text-green-300 font-semibold">Аналізуємо листок...</p>
-                </div>
-              </div>
-            )}
-          </>
+          <img src={captured} alt="Скан" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        )}
+
+        {!streaming && !captured && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#4b5563', fontSize: '14px' }}>
+            Камера вимкнена
+          </div>
+        )}
+
+        {analyzing && (
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px' }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: '40px', marginBottom: '8px' }}>🔍</div>
+              <p style={{ color: '#4ade80', fontWeight: 600 }}>Аналізуємо листок...</p>
+            </div>
+          </div>
         )}
       </div>
 
+      {/* Buttons */}
+      <div style={{ marginTop: '16px', display: 'flex', gap: '12px', width: '100%', justifyContent: 'center' }}>
+        {!streaming && !captured && (
+          <button onClick={startCamera} style={{ background: '#16a34a', color: 'white', padding: '14px 32px', borderRadius: '12px', fontSize: '16px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
+            📷 Відкрити камеру
+          </button>
+        )}
+        {streaming && (
+          <button onClick={handleCapture} style={{ background: 'white', color: 'black', padding: '14px 32px', borderRadius: '50px', fontSize: '16px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
+            ⚡ Сканувати
+          </button>
+        )}
+        {(result || captured) && !analyzing && (
+          <button onClick={retake} style={{ background: '#15803d', color: 'white', padding: '12px 24px', borderRadius: '10px', fontSize: '14px', border: 'none', cursor: 'pointer' }}>
+            🔄 Сканувати ще
+          </button>
+        )}
+      </div>
+
+      {/* Error */}
       {error && (
-        <div className="w-full mt-3 bg-red-900/40 border border-red-700 rounded-lg p-3 text-sm text-red-200">
+        <div style={{ width: '100%', marginTop: '12px', background: 'rgba(153,27,27,0.3)', border: '1px solid #b91c1c', borderRadius: '10px', padding: '12px', fontSize: '13px', color: '#fca5a5' }}>
           ❌ {error}
-          <button onClick={retake} className="ml-2 underline">Спробувати знову</button>
         </div>
       )}
 
+      {/* Result */}
       {result && (
-        <div className="w-full mt-3 bg-gray-900 border border-green-800 rounded-xl p-4 text-sm whitespace-pre-wrap">
-          <div className="text-green-400 font-bold mb-2">📋 Висновок:</div>
+        <div style={{ width: '100%', marginTop: '12px', background: '#111827', border: '1px solid #166534', borderRadius: '12px', padding: '16px', fontSize: '13px', whiteSpace: 'pre-wrap', color: '#e5e7eb', marginBottom: '32px' }}>
+          <div style={{ color: '#4ade80', fontWeight: 700, marginBottom: '8px' }}>📋 Висновок:</div>
           {result}
         </div>
-      )}
-
-      {result && (
-        <button onClick={retake} className="mt-4 mb-8 bg-green-700 hover:bg-green-600 text-white px-6 py-2 rounded-lg text-sm">
-          🔄 Сканувати ще
-        </button>
       )}
     </main>
   )
